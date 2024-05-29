@@ -3,6 +3,9 @@ const {
   addLecturerAuth,
   addParentAuth,
   addStudentAuth,
+  deleteLecturerAuth,
+  deleteParentAuth,
+  deleteStudentAuth,
 } = require("../middlewares/authentication");
 const { resetDeviceStatus } = require("../middlewares/firestore");
 const {
@@ -28,5 +31,11 @@ router.post("/resetDeviceStatus", resetDeviceStatus);
 router.post("/postDataOfDate", postDateOfDate);
 
 router.post("/getDataOfDate", getDataOfDate);
+
+router.post("/deleteLecturer", deleteLecturerAuth);
+
+router.post("/deleteParent", deleteParentAuth);
+
+router.post("/deleteStudent", deleteStudentAuth);
 
 module.exports = router;

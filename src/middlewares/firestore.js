@@ -30,13 +30,13 @@ const addStudent = async (uid, email, name, parentID, address, phoneNumber) => {
 };
 
 const updateParentHasChild = async (parentID) => {
-  await db.collection("parent").doc().update({
+  await db.collection("parent").doc(parentID).update({
     hasChild: true,
   });
 };
 
 const addAuthentication = async (uid, email, password, role) => {
-  await admin.firestore().collection("authentication").doc(uid).set({
+  await db.collection("authentication").doc(uid).set({
     email,
     password,
     role,

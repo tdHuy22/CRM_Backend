@@ -1,4 +1,4 @@
-const admin = require("../config/firebaseAdmin");
+const { auth } = require("../config/firebaseAdmin");
 const {
   addAuthentication,
   addLecturer,
@@ -10,32 +10,15 @@ const {
 const addLecturerAuth = async (req, res, next) => {
   try {
     const { email, password, role, name, address, phoneNumber } = req.body;
-    const userRecord = await admin.auth().createUser({
+    const userRecord = await auth.createUser({
       email,
       password,
       displayName: name,
     });
 
-    await admin.auth().setCustomUserClaims(userRecord.uid, { role });
-
-    // await admin
-    //   .firestore()
-    //   .collection("authentication")
-    //   .doc(userRecord.uid)
-    //   .set({
-    //     email,
-    //     password,
-    //     role,
-    //   });
+    await auth.setCustomUserClaims(userRecord.uid, { role });
 
     await addAuthentication(userRecord.uid, email, password, role);
-
-    // await admin.firestore().collection("lecturer").doc(userRecord.uid).set({
-    //   name,
-    //   email,
-    //   address,
-    //   phoneNumber,
-    // });
 
     await addLecturer(userRecord.uid, email, name, address, phoneNumber);
 
@@ -49,13 +32,13 @@ const addLecturerAuth = async (req, res, next) => {
 const addParentAuth = async (req, res, next) => {
   try {
     const { email, password, role, name, address, phoneNumber } = req.body;
-    const userRecord = await admin.auth().createUser({
+    const userRecord = await auth.createUser({
       email,
       password,
       displayName: name,
     });
 
-    await admin.auth().setCustomUserClaims(userRecord.uid, { role });
+    await auth.setCustomUserClaims(userRecord.uid, { role });
 
     // await admin
     //   .firestore()
@@ -90,33 +73,15 @@ const addStudentAuth = async (req, res, next) => {
   try {
     const { email, password, role, name, parentID, address, phoneNumber } =
       req.body;
-    const userRecord = await admin.auth().createUser({
+    const userRecord = await auth.createUser({
       email,
       password,
       displayName: name,
     });
 
-    await admin.auth().setCustomUserClaims(userRecord.uid, { role });
-
-    // await admin
-    //   .firestore()
-    //   .collection("authentication")
-    //   .doc(userRecord.uid)
-    //   .set({
-    //     email,
-    //     password,
-    //     role,
-    //   });
+    await auth.setCustomUserClaims(userRecord.uid, { role });
 
     await addAuthentication(userRecord.uid, email, password, role);
-
-    // await admin.firestore().collection("student").doc(userRecord.uid).set({
-    //   name,
-    //   email,
-    //   parentID,
-    //   address,
-    //   phoneNumber,
-    // });
 
     await addStudent(
       userRecord.uid,
@@ -127,10 +92,6 @@ const addStudentAuth = async (req, res, next) => {
       phoneNumber
     );
 
-    // await admin.firestore().collection("parent").doc(parentID).update({
-    //   hasChild: true,
-    // });
-
     await updateParentHasChild(parentID);
 
     res.status(200);
@@ -140,4 +101,44 @@ const addStudentAuth = async (req, res, next) => {
   }
 };
 
-module.exports = { addLecturerAuth, addParentAuth, addStudentAuth };
+const deleteLecturerAuth = async (req, res, next) => {
+  try {
+    const { id } = req.body;
+    await auth.deleteUser(id);
+    res.status(200);
+    res.json({ message: "Lecturer deleted successfully" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const deleteParentAuth = async (req, res, next) => {
+  try {
+    const { id } = req.body;
+    await auth.deleteUser(id);
+    res.status(200);
+    res.json({ message: "Parent deleted successfully" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const deleteStudentAuth = async (req, res, next) => {
+  try {
+    const { id } = req.body;
+    await auth.deleteUser(id);
+    res.status(200);
+    res.json({ message: "Student deleted successfully" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = {
+  addLecturerAuth,
+  addParentAuth,
+  addStudentAuth,
+  deleteLecturerAuth,
+  deleteParentAuth,
+  deleteStudentAuth,
+};
