@@ -71,8 +71,16 @@ const addParentAuth = async (req, res, next) => {
 
 const addStudentAuth = async (req, res, next) => {
   try {
-    const { email, password, role, name, parentID, address, phoneNumber } =
-      req.body;
+    const {
+      email,
+      password,
+      role,
+      name,
+      parentID,
+      address,
+      phoneNumber,
+      RFID,
+    } = req.body;
     const userRecord = await auth.createUser({
       email,
       password,
@@ -89,7 +97,8 @@ const addStudentAuth = async (req, res, next) => {
       name,
       parentID,
       address,
-      phoneNumber
+      phoneNumber,
+      RFID
     );
 
     await updateParentHasChild(parentID);

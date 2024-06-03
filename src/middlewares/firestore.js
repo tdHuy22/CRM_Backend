@@ -19,13 +19,22 @@ const addParent = async (uid, email, name, address, phoneNumber) => {
   });
 };
 
-const addStudent = async (uid, email, name, parentID, address, phoneNumber) => {
+const addStudent = async (
+  uid,
+  email,
+  name,
+  parentID,
+  address,
+  phoneNumber,
+  RFID
+) => {
   await db.collection("student").doc(uid).set({
     name,
     email,
     parentID,
     address,
     phoneNumber,
+    RFID,
   });
 };
 
@@ -59,7 +68,11 @@ const getCourseIDroomID = async (roomID) => {
     .get();
   let list = [];
   snapShot.forEach((doc) => {
-    list.push(doc.id);
+    list.push({
+      courseID: doc.id,
+      startTime: doc.data().startTime,
+      endTime: doc.data().endTime,
+    });
   });
   return list;
 };
@@ -85,16 +98,26 @@ const getScheduleCourseID = async (courseID, date) => {
 };
 
 const getStudentCourseID = async (courseID) => {
-  const snapShot = await db
+  const courseStudentSnapShot = await db
     .collection("courseStudent")
     .where("courseID", "==", courseID)
     .get();
 
-  let list = [];
-
-  snapShot.docs.forEach((doc) => {
-    list.push(doc.data().studentID);
+  let courseStudentList = [];
+  courseStudentSnapShot.forEach((doc) => {
+    courseStudentList.push(doc.data().studentID);
   });
+
+  let list = [];
+  for (const id of courseStudentList) {
+    const doc = await db.collection("student").doc(id).get();
+    if (doc.exists) {
+      list.push({
+        studentID: doc.id,
+        RFID: doc.data().RFID,
+      });
+    }
+  }
 
   return list;
 };

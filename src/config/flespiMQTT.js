@@ -1,7 +1,14 @@
-const mqttFlespiServer = "mqtt://mqtt.flespi.io";
+// Replace with your Flespi token
+const FLESPI_TOKEN =
+  "uTQ2ydOB4xt3tOr14cYowPDBtwvP7tmFtNaPQc2ja3ckSCXKx41WrGDHjfsaIdBu";
 
-const optionsFLespi = {
-  username: "dwUwuLYUijJjCWT1Y6kt03oImBbGAF1IHEij9ZMFx5KMftzwIqim8FwDF19wDlZa",
-  password: "",
-  port: 1883,
+// MQTT connection options
+const options = {
+  host: "mqtt.flespi.io",
+  port: 8883, // For secure connection
+  protocol: "mqtts",
+  username: FLESPI_TOKEN, // Flespi uses token as username
+  password: "", // No password required for Flespi
 };
+
+module.exports = { options };
