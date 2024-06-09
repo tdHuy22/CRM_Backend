@@ -31,10 +31,10 @@ const postDateOfDate = async (req, res, next) => {
             messageLength += studentList.length * scheduleList.length;
             studentList.forEach((student) => {
               const message = {
-                RFID: student.RFID,
                 studentID: student.studentID,
-                scheduleID: scheduleList[0].id,
+                RFID: student.RFID,
                 courseID: course.courseID,
+                scheduleID: scheduleList[0].id,
                 startTime: course.startTime,
                 endTime: course.endTime,
               };
