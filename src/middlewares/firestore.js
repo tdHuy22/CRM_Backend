@@ -1,4 +1,5 @@
 const { db } = require("../config/firebaseAdmin");
+const { isTimeBWithinOneHour } = require("./formattedDate");
 
 const addLecturer = async (uid, email, name, address, phoneNumber) => {
   await db.collection("lecturer").doc(uid).set({
@@ -129,7 +130,19 @@ const updateAttendanceTrue = async (studentID, scheduleID) => {
     .where("scheduleID", "==", scheduleID);
   docRef.get().then((querySnapshot) => {
     querySnapshot.forEach((doc) => {
-      doc.ref.update({ attended: true });
+      doc.ref.update({ attended: "Present" });
+    });
+  });
+};
+
+const updateAttendanceFalse = async (studentID, scheduleID) => {
+  const docRef = db
+    .collection("attendance")
+    .where("studentID", "==", studentID)
+    .where("scheduleID", "==", scheduleID);
+  docRef.get().then((querySnapshot) => {
+    querySnapshot.forEach((doc) => {
+      doc.ref.update({ attended: "Absent" });
     });
   });
 };
@@ -155,6 +168,72 @@ const resetDeviceStatus = async (req, res, next) => {
   }
 };
 
+const getInfoCourseFromRFID = async (RFID, currentDay, currentTime) => {
+  const studentSnapShot = await db
+    .collection("student")
+    .where("RFID", "==", RFID)
+    .get();
+
+  let studentID = "";
+  studentSnapShot.forEach((doc) => {
+    studentID = doc.id;
+  });
+
+  let courseIDList = [];
+  const courseStudentSnapShot = await db
+    .collection("courseStudent")
+    .where("studentID", "==", studentID)
+    .get();
+  courseStudentSnapShot.forEach((doc) => {
+    courseIDList.push(doc.data().courseID);
+  });
+
+  let courseInDate = [];
+  const scheduleSnapShot = await db
+    .collection("schedule")
+    .where("date", "==", currentDay)
+    .where("courseID", "in", courseIDList)
+    .get();
+
+  if (scheduleSnapShot.empty) return null;
+  scheduleSnapShot.forEach((doc) => {
+    courseInDate.push({ scheduleID: doc.id, ...doc.data() });
+  });
+
+  let courseInTime = "";
+  const courseInTimeSnapShot = await db
+    .collection("course")
+    .where(
+      "code",
+      "in",
+      courseInDate.map((course) => course.courseID)
+    )
+    .get();
+
+  let result = {
+    studentID: studentID,
+    scheduleID: "",
+    startTime: "",
+    endTime: "",
+  };
+  courseInTimeSnapShot.forEach((doc) => {
+    if (isTimeBWithinOneHour(doc.data().startTime, currentTime)) {
+      courseInTime = doc.id;
+      result = {
+        startTime: doc.data().startTime,
+        endTime: doc.data().endTime,
+      };
+    }
+  });
+  if (courseInTime === "") return null;
+
+  result.scheduleID = courseInDate.find(
+    (course) => course.courseID === courseInTime
+  ).scheduleID;
+
+  return result;
+};
+
 module.exports = {
   addAuthentication,
   addLecturer,
@@ -168,4 +247,6 @@ module.exports = {
   updateAttendanceTrue,
   updateDeviceStatus,
   resetDeviceStatus,
+  updateAttendanceFalse,
+  getInfoCourseFromRFID,
 };

@@ -6,7 +6,10 @@ const {
   getStudentCourseID,
   updateAttendanceTrue,
   updateDeviceStatus,
+  updateAttendanceFalse,
+  getInfoCourseFromRFID,
 } = require("./firestore");
+const { formattedDate, formattedTime } = require("./formattedDate");
 const mqtt = require("mqtt");
 let deviceList = [];
 
@@ -136,6 +139,61 @@ const onMessage = (topic, message) => {
         .catch((error) => {
           console.log(error);
         });
+    }
+    if (
+      topic === `device/${device.id}/updateAtt` &&
+      device.roomID === "Online"
+    ) {
+      const messageJson = JSON.parse(message.toString());
+      console.log(
+        `Received message from ${topic}: ${JSON.stringify(messageJson)}`
+      );
+      if (messageJson.RFID) {
+        const date = new Date();
+        const formattedDay = formattedDate(date);
+        const formattedTimeNow = formattedTime(date);
+        let result = {};
+        getInfoCourseFromRFID(
+          messageJson.RFID,
+          formattedDay,
+          formattedTimeNow
+        ).then((info) => {
+          result = info;
+        });
+        if (result === null) {
+          console.log("Invalid RFID");
+          client.publish(`device/${device.id}/sPOST`, "LATE");
+        } else {
+          client.publish(`device/${device.id}/sPOST`, JSON.stringify(result));
+          console.log(
+            `Publish to device/${device.id} a message:` + JSON.stringify(result)
+          );
+        }
+      } else if (messageJson.studentID) {
+        if (messageJson.status === "SUCCESS") {
+          updateAttendanceTrue(messageJson.studentID, messageJson.scheduleID)
+            .then(() => {
+              console.log(
+                `Update attendance Present of student ${messageJson.studentID} for schedule ${messageJson.scheduleID} successfully`
+              );
+            })
+            .catch((error) => {
+              console.log(error);
+            });
+        } else {
+          updateAttendanceFalse(messageJson.studentID, messageJson.scheduleID)
+            .then(() => {
+              console.log(
+                `Update attendance Absent of student ${messageJson.studentID} for schedule ${messageJson.scheduleID} successfully`
+              );
+            })
+            .catch((error) => {
+              console.log(error);
+            });
+        }
+      } else {
+        console.log("Invalid message");
+      }
     }
   });
 };
