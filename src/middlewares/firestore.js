@@ -147,6 +147,18 @@ const updateAttendanceFalse = async (studentID, scheduleID) => {
   });
 };
 
+const updateAttendanceWatching = async (studentID, scheduleID) => {
+  const docRef = db
+    .collection("attendance")
+    .where("studentID", "==", studentID)
+    .where("scheduleID", "==", scheduleID);
+  docRef.get().then((querySnapshot) => {
+    querySnapshot.forEach((doc) => {
+      doc.ref.update({ attended: "Watching" });
+    });
+  });
+};
+
 const updateDeviceStatus = async (deviceID, status) => {
   await db.collection("device").doc(deviceID).update({
     status: status,
@@ -230,6 +242,8 @@ const getInfoCourseFromRFID = async (RFID, currentDay, currentTime) => {
   result.scheduleID = courseInDate.find(
     (course) => course.courseID === courseInTime
   ).scheduleID;
+
+  updateAttendanceWatching(studentID, result.scheduleID);
 
   return result;
 };
