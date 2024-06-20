@@ -157,6 +157,7 @@ const updateAttendanceWatching = async (studentID, scheduleID) => {
       doc.ref.update({ attended: "Watching" });
     });
   });
+  console.log("Update attendance watching");
 };
 
 const updateDeviceStatus = async (deviceID, status) => {
@@ -181,20 +182,38 @@ const resetDeviceStatus = async (req, res, next) => {
 };
 
 const getInfoCourseFromRFID = async (RFID, currentDay, currentTime) => {
+  let result = {
+    studentID: "",
+    RFID: "",
+    scheduleID: "",
+    startTime: "",
+    endTime: "",
+  };
+
   const studentSnapShot = await db
     .collection("student")
     .where("RFID", "==", RFID)
     .get();
 
-  let studentID = "";
+  let studentId = "";
   studentSnapShot.forEach((doc) => {
-    studentID = doc.id;
+    studentId = doc.id;
+    console.log(doc.data());
+    console.log(doc.id);
   });
+
+  if (studentId === "") {
+    console.log("Student not found");
+    return null;
+  }
+
+  result.studentID = studentId;
+  result.RFID = RFID;
 
   let courseIDList = [];
   const courseStudentSnapShot = await db
     .collection("courseStudent")
-    .where("studentID", "==", studentID)
+    .where("studentID", "==", studentId)
     .get();
   courseStudentSnapShot.forEach((doc) => {
     courseIDList.push(doc.data().courseID);
@@ -207,7 +226,10 @@ const getInfoCourseFromRFID = async (RFID, currentDay, currentTime) => {
     .where("courseID", "in", courseIDList)
     .get();
 
-  if (scheduleSnapShot.empty) return null;
+  if (scheduleSnapShot.empty) {
+    console.log("No course in date");
+    return null;
+  }
   scheduleSnapShot.forEach((doc) => {
     courseInDate.push({ scheduleID: doc.id, ...doc.data() });
   });
@@ -222,29 +244,20 @@ const getInfoCourseFromRFID = async (RFID, currentDay, currentTime) => {
     )
     .get();
 
-  let result = {
-    studentID: studentID,
-    scheduleID: "",
-    startTime: "",
-    endTime: "",
-  };
   courseInTimeSnapShot.forEach((doc) => {
     if (isTimeBWithinOneHour(doc.data().startTime, currentTime)) {
       courseInTime = doc.id;
-      result = {
-        startTime: doc.data().startTime,
-        endTime: doc.data().endTime,
-      };
+      result.startTime = doc.data().startTime;
+      result.endTime = doc.data().endTime;
     }
   });
-  if (courseInTime === "") return null;
-
+  if (courseInTime === "") {
+    console.log("No course in time");
+    return null;
+  }
   result.scheduleID = courseInDate.find(
     (course) => course.courseID === courseInTime
   ).scheduleID;
-
-  updateAttendanceWatching(studentID, result.scheduleID);
-
   return result;
 };
 
@@ -262,5 +275,6 @@ module.exports = {
   updateDeviceStatus,
   resetDeviceStatus,
   updateAttendanceFalse,
+  updateAttendanceWatching,
   getInfoCourseFromRFID,
 };

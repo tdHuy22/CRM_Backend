@@ -8,12 +8,18 @@ const {
   updateDeviceStatus,
   updateAttendanceFalse,
   getInfoCourseFromRFID,
+  updateAttendanceWatching,
 } = require("./firestore");
+// const delay = require("./delay");
 const { formattedDate, formattedTime } = require("./formattedDate");
 const mqtt = require("mqtt");
 let deviceList = [];
 
 const client = mqtt.connect(options);
+
+const delay = (ms = 1000) => {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+};
 
 const postDateOfDate = async (req, res, next) => {
   try {
@@ -32,7 +38,7 @@ const postDateOfDate = async (req, res, next) => {
           if (scheduleList.length > 0) {
             const studentList = await getStudentCourseID(course.courseID);
             messageLength += studentList.length * scheduleList.length;
-            studentList.forEach((student) => {
+            for (const student of studentList) {
               const message = {
                 studentID: student.studentID,
                 RFID: student.RFID,
@@ -49,7 +55,9 @@ const postDateOfDate = async (req, res, next) => {
                 `Publish to device/${device.id} a message:` +
                   JSON.stringify(message)
               );
-            });
+              // await delay(1000);
+              // console.log("Delay 1s");
+            }
           } else {
             console.log(`No schedule for course ${course.id}`);
           }
@@ -75,14 +83,17 @@ const postDateOfDate = async (req, res, next) => {
 
 const checkStatus = (req, res, next) => {
   try {
-    deviceList.map(async (device) => {
-      if (device.roomID !== "Online") {
-        client.publish(`device/${device.id}/status`, "CDS");
-        console.log(`Publish to device/${device.id} a message: CDS`);
-      } else {
-        client.publish(`device/${device.id}/status`, "CDSL");
-        console.log(`Publish to device/${device.id} a message: CDSL`);
-      }
+    getDeviceID().then((list) => {
+      deviceList = list;
+      deviceList.map(async (device) => {
+        if (device.roomID !== "Online") {
+          client.publish(`device/${device.id}/status`, "CDS");
+          console.log(`Publish to device/${device.id} a message: CDS`);
+        } else {
+          client.publish(`device/${device.id}/status`, "CDSL");
+          console.log(`Publish to device/${device.id} a message: CDSL`);
+        }
+      });
     });
     res.status(200);
     res.send("Checking device status");
@@ -149,26 +160,31 @@ const onMessage = (topic, message) => {
         `Received message from ${topic}: ${JSON.stringify(messageJson)}`
       );
       if (messageJson.RFID) {
+        // const date = new Date();
+        // const formattedDay = formattedDate(date);
+        // const formattedTimeNow = formattedTime(date);
+
         const date = new Date();
-        const formattedDay = formattedDate(date);
+        const formattedDay = "13/09/2024";
         const formattedTimeNow = formattedTime(date);
-        let result = {};
         getInfoCourseFromRFID(
           messageJson.RFID,
           formattedDay,
           formattedTimeNow
         ).then((info) => {
-          result = info;
+          const result = info;
+          if (result === null) {
+            console.log("Invalid RFID");
+            client.publish(`device/${device.id}/sPOST`, "LATE");
+          } else {
+            client.publish(`device/${device.id}/sPOST`, JSON.stringify(result));
+            console.log(
+              `Publish to device/${device.id}/sPOST a message:` +
+                JSON.stringify(result)
+            );
+            updateAttendanceWatching(result.studentID, result.scheduleID);
+          }
         });
-        if (result === null) {
-          console.log("Invalid RFID");
-          client.publish(`device/${device.id}/sPOST`, "LATE");
-        } else {
-          client.publish(`device/${device.id}/sPOST`, JSON.stringify(result));
-          console.log(
-            `Publish to device/${device.id} a message:` + JSON.stringify(result)
-          );
-        }
       } else if (messageJson.studentID) {
         if (messageJson.status === "SUCCESS") {
           updateAttendanceTrue(messageJson.studentID, messageJson.scheduleID)
