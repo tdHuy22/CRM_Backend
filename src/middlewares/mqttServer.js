@@ -10,7 +10,6 @@ const {
   getInfoCourseFromRFID,
   updateAttendanceWatching,
 } = require("./firestore");
-// const delay = require("./delay");
 const { formattedDate, formattedTime } = require("./formattedDate");
 const mqtt = require("mqtt");
 let deviceList = [];
@@ -21,9 +20,16 @@ const delay = (ms = 1000) => {
   return new Promise((resolve) => setTimeout(resolve, ms));
 };
 
+let currentDay = "";
+let currentTime = "";
+
 const postDateOfDate = async (req, res, next) => {
   try {
     const date = req.body.date;
+    currentDay = date;
+    currentTime = req.body.time;
+    console.log(`Posting data of date ${date}`);
+    console.log(`Current time: ${currentTime}`);
     deviceList.map(async (device) => {
       if (device.roomID === "Online") {
         return;
@@ -160,31 +166,26 @@ const onMessage = (topic, message) => {
         `Received message from ${topic}: ${JSON.stringify(messageJson)}`
       );
       if (messageJson.RFID) {
-        // const date = new Date();
-        // const formattedDay = formattedDate(date);
         // const formattedTimeNow = formattedTime(date);
-
-        const date = new Date();
-        const formattedDay = "13/09/2024";
-        const formattedTimeNow = formattedTime(date);
-        getInfoCourseFromRFID(
-          messageJson.RFID,
-          formattedDay,
-          formattedTimeNow
-        ).then((info) => {
-          const result = info;
-          if (result === null) {
-            console.log("Invalid RFID");
-            client.publish(`device/${device.id}/sPOST`, "LATE");
-          } else {
-            client.publish(`device/${device.id}/sPOST`, JSON.stringify(result));
-            console.log(
-              `Publish to device/${device.id}/sPOST a message:` +
+        getInfoCourseFromRFID(messageJson.RFID, currentDay, currentTime).then(
+          (info) => {
+            const result = info;
+            if (result === null) {
+              console.log("Invalid RFID");
+              client.publish(`device/${device.id}/sPOST`, "LATE");
+            } else {
+              client.publish(
+                `device/${device.id}/sPOST`,
                 JSON.stringify(result)
-            );
-            updateAttendanceWatching(result.studentID, result.scheduleID);
+              );
+              console.log(
+                `Publish to device/${device.id}/sPOST a message:` +
+                  JSON.stringify(result)
+              );
+              updateAttendanceWatching(result.studentID, result.scheduleID);
+            }
           }
-        });
+        );
       } else if (messageJson.studentID) {
         if (messageJson.status === "SUCCESS") {
           updateAttendanceTrue(messageJson.studentID, messageJson.scheduleID)
