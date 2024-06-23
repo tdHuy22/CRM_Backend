@@ -33,4 +33,19 @@ const isTimeBWithinOneHour = (timeA, timeB) => {
   return false;
 };
 
-module.exports = { formattedDate, formattedTime, isTimeBWithinOneHour };
+function convertTimeToCronFormat(time) {
+  // Split the time by ":" to get hours and minutes
+  const [hour, minute] = time.split(":");
+
+  // Construct the cron string. Since it's a daily task, day of the month, month, and day of the week are set to "*"
+  const cronFormat = `${minute} ${hour} * * *`;
+
+  return cronFormat;
+}
+
+module.exports = {
+  formattedDate,
+  formattedTime,
+  isTimeBWithinOneHour,
+  convertTimeToCronFormat,
+};

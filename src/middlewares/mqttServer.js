@@ -10,8 +10,18 @@ const {
   getInfoCourseFromRFID,
   updateAttendanceWatching,
 } = require("./firestore");
-const { formattedDate, formattedTime } = require("./formattedDate");
+const {
+  formattedDate,
+  formattedTime,
+  convertTimeToCronFormat,
+} = require("./formattedDate");
+const cron = require("node-cron");
+
+let operationMode = "Automatic";
+let cronTask = null;
+
 const mqtt = require("mqtt");
+
 let deviceList = [];
 
 const client = mqtt.connect(options);
@@ -23,24 +33,84 @@ const delay = (ms = 1000) => {
 let currentDay = "";
 let currentTime = "";
 
+const scheduleCron = (time) => {
+  const checkTime = convertTimeToCronFormat(time);
+  console.log(`Cron job scheduled at ${checkTime}`);
+  cronTask = cron.schedule(checkTime, () => {
+    console.log("Cron job running at 00:00 everyday");
+    getDeviceID().then(
+      (list) => {
+        deviceList = list;
+        deviceList.map((device) => {
+          if (device.roomID !== "Online") {
+            client.publish(`device/${device.id}/status`, "CDS");
+            console.log(`Publish to device/${device.id} a message: CDS`);
+          } else {
+            client.publish(`device/${device.id}/status`, "CDSL");
+            console.log(`Publish to device/${device.id} a message: CDSL`);
+          }
+        });
+      },
+      { scheduled: false }
+    ); // Run at 00:00 everyday
+  });
+};
+
+const startCron = (time) => {
+  if (cronTask === null) {
+    scheduleCron(time);
+    cronTask.start();
+  }
+};
+
+const stopCron = () => {
+  if (cronTask !== null) {
+    cronTask.stop();
+    cronTask = null;
+    console.log("Cron job stopped");
+  }
+};
+
+const setModeDevice = (req, res, next) => {
+  try {
+    const time = req.body.time;
+    operationMode = "Automatic";
+    console.log(`Set mode device to Automatic at ${time}`);
+    startCron(time);
+    res.status(200);
+    res.send("Set mode device to Automatic");
+  } catch (error) {
+    next(error);
+  }
+};
+
 const postDateOfDate = async (req, res, next) => {
   try {
-    const date = req.body.date;
-    currentDay = date;
+    operationMode = "Manual";
+    stopCron();
+
+    currentDay = req.body.date;
     currentTime = req.body.time;
-    console.log(`Posting data of date ${date}`);
+
+    console.log(`Posting data of date ${currentDay}`);
     console.log(`Current time: ${currentTime}`);
+
     deviceList.map(async (device) => {
-      if (device.roomID === "Online") {
+      if (device.roomID === "Online" || device.status !== "Ready") {
         return;
       }
       const courseIDList = await getCourseIDroomID(device.roomID);
-      client.publish(`device/${device.id}/sPOST`, `POST-${date}`);
-      console.log(`Publish to device/${device.id} a message: POST-${date}`);
+      client.publish(`device/${device.id}/sPOST`, `POST-${currentDay}`);
+      console.log(
+        `Publish to device/${device.id} a message: POST-${currentDay}`
+      );
       let messageLength = 0;
       Promise.all(
         courseIDList.map(async (course) => {
-          const scheduleList = await getScheduleCourseID(course.courseID, date);
+          const scheduleList = await getScheduleCourseID(
+            course.courseID,
+            currentDay
+          );
           if (scheduleList.length > 0) {
             const studentList = await getStudentCourseID(course.courseID);
             messageLength += studentList.length * scheduleList.length;
@@ -65,10 +135,14 @@ const postDateOfDate = async (req, res, next) => {
               // console.log("Delay 1s");
             }
           } else {
-            console.log(`No schedule for course ${course.id}`);
+            console.log(`No schedule for course ${course.courseID}`);
           }
         })
       ).then(() => {
+        if (messageLength === 0) {
+          console.log("No message to post");
+          return;
+        }
         const messageLen = {
           messageLength: messageLength,
         };
@@ -81,7 +155,7 @@ const postDateOfDate = async (req, res, next) => {
       });
     });
     res.status(200);
-    res.send(`Posting data of date ${date}`);
+    res.send(`Posting data of date ${currentDay}`);
   } catch (error) {
     next(error);
   }
@@ -91,7 +165,7 @@ const checkStatus = (req, res, next) => {
   try {
     getDeviceID().then((list) => {
       deviceList = list;
-      deviceList.map(async (device) => {
+      deviceList.map((device) => {
         if (device.roomID !== "Online") {
           client.publish(`device/${device.id}/status`, "CDS");
           console.log(`Publish to device/${device.id} a message: CDS`);
@@ -132,8 +206,65 @@ const onMessage = (topic, message) => {
           message.toString() === `CDSL-${device.id}`))
     ) {
       updateDeviceStatus(device.id, "Ready")
-        .then(() => {
+        .then(async () => {
           console.log(`Device ${device.id} is ready`);
+          if (operationMode === "Automatic") {
+            if (device.roomID === "Online" || device.status !== "Ready") {
+              return;
+            }
+            currentDay = formattedDate(new Date());
+            const courseIDList = await getCourseIDroomID(device.roomID);
+            client.publish(`device/${device.id}/sPOST`, `POST-${currentDay}`);
+            console.log(
+              `Publish to device/${device.id} a message: POST-${currentDay}`
+            );
+            let messageLength = 0;
+            Promise.all(
+              courseIDList.map(async (course) => {
+                const scheduleList = await getScheduleCourseID(
+                  course.courseID,
+                  currentDay
+                );
+                if (scheduleList.length > 0) {
+                  const studentList = await getStudentCourseID(course.courseID);
+                  messageLength += studentList.length * scheduleList.length;
+                  for (const student of studentList) {
+                    const message = {
+                      studentID: student.studentID,
+                      RFID: student.RFID,
+                      courseID: course.courseID,
+                      scheduleID: scheduleList[0].id,
+                      startTime: course.startTime,
+                      endTime: course.endTime,
+                    };
+                    client.publish(
+                      `device/${device.id}/sPOST`,
+                      JSON.stringify(message)
+                    );
+                    console.log(
+                      `Publish to device/${device.id} a message:` +
+                        JSON.stringify(message)
+                    );
+                  }
+                } else {
+                  console.log(`No schedule for course ${course.id}`);
+                }
+              })
+            ).then(() => {
+              const messageLen = {
+                messageLength: messageLength,
+              };
+              client.publish(
+                `device/${device.id}/sPOST`,
+                JSON.stringify(messageLen)
+              );
+              console.log(
+                `Publish to device/${device.id} a message: ${JSON.stringify(
+                  messageLen
+                )}`
+              );
+            });
+          }
         })
         .catch((error) => {
           console.log(error);
@@ -166,7 +297,10 @@ const onMessage = (topic, message) => {
         `Received message from ${topic}: ${JSON.stringify(messageJson)}`
       );
       if (messageJson.RFID) {
-        // const formattedTimeNow = formattedTime(date);
+        if (operationMode === "Automatic") {
+          currentDay = formattedDate(new Date());
+          currentTime = formattedTime(new Date());
+        }
         getInfoCourseFromRFID(messageJson.RFID, currentDay, currentTime).then(
           (info) => {
             const result = info;
@@ -221,4 +355,5 @@ module.exports = {
   onMessage,
   checkStatus,
   postDateOfDate,
+  setModeDevice,
 };

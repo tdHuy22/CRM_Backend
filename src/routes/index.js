@@ -8,7 +8,11 @@ const {
   deleteStudentAuth,
 } = require("../middlewares/authentication");
 const { resetDeviceStatus } = require("../middlewares/firestore");
-const { checkStatus, postDateOfDate } = require("../middlewares/mqttServer");
+const {
+  checkStatus,
+  postDateOfDate,
+  setModeDevice,
+} = require("../middlewares/mqttServer");
 
 router.get("/", function (req, res, next) {
   res.send("Welcome to the API");
@@ -31,5 +35,7 @@ router.post("/deleteLecturer", deleteLecturerAuth);
 router.post("/deleteParent", deleteParentAuth);
 
 router.post("/deleteStudent", deleteStudentAuth);
+
+router.post("/deviceWorkAuto", setModeDevice);
 
 module.exports = router;
