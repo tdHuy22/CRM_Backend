@@ -4,11 +4,9 @@ const {
   getCourseIDroomID,
   getScheduleCourseID,
   getStudentCourseID,
-  updateAttendanceTrue,
   updateDeviceStatus,
-  updateAttendanceFalse,
   getInfoCourseFromRFID,
-  updateAttendanceWatching,
+  updateAttendance,
 } = require("./firestore");
 const {
   formattedDate,
@@ -17,7 +15,7 @@ const {
 } = require("./formattedDate");
 const cron = require("node-cron");
 
-let operationMode = "Automatic";
+let operationMode = "Manual";
 let cronTask = null;
 
 const mqtt = require("mqtt");
@@ -41,7 +39,11 @@ const scheduleCron = (time) => {
     getDeviceID().then(
       (list) => {
         deviceList = list;
-        deviceList.map((device) => {
+        list.map((device) => {
+          client.subscribe(`device/${device.id}/status/res`);
+          client.subscribe(`device/${device.id}/updateAtt`);
+          console.log(`Subscribed to device/${device.id}/status/res`);
+          console.log(`Subscribed to device/${device.id}/updateAtt`);
           if (device.roomID !== "Online") {
             client.publish(`device/${device.id}/status`, "CDS");
             console.log(`Publish to device/${device.id} a message: CDS`);
@@ -74,6 +76,11 @@ const stopCron = () => {
 const setModeDevice = (req, res, next) => {
   try {
     const time = req.body.time;
+    if (time === "") {
+      res.status(400);
+      res.send("Time is required");
+      return;
+    }
     operationMode = "Automatic";
     console.log(`Set mode device to Automatic at ${time}`);
     startCron(time);
@@ -81,6 +88,71 @@ const setModeDevice = (req, res, next) => {
     res.send("Set mode device to Automatic");
   } catch (error) {
     next(error);
+  }
+};
+
+const postDateAutomatic = async (device) => {
+  try {
+    console.log(`Device ${device.id} is ready 96`);
+    if (operationMode === "Automatic") {
+      if (device.roomID === "Online") {
+        console.log(`Device ${device.id} mode is Online`);
+        return;
+      }
+      currentDay = formattedDate(new Date());
+      const courseIDList = await getCourseIDroomID(device.roomID);
+      client.publish(`device/${device.id}/sPOST`, `POST-${currentDay}`);
+      console.log(
+        `Publish to device/${device.id} a message: POST-${currentDay}`
+      );
+      let messageLength = 0;
+      Promise.all(
+        courseIDList.map(async (course) => {
+          const scheduleList = await getScheduleCourseID(
+            course.courseID,
+            currentDay
+          );
+          if (scheduleList.length > 0) {
+            const studentList = await getStudentCourseID(course.courseID);
+            messageLength += studentList.length * scheduleList.length;
+            for (const student of studentList) {
+              const message = {
+                studentID: student.studentID,
+                RFID: student.RFID,
+                courseID: course.courseID,
+                scheduleID: scheduleList[0].id,
+                startTime: course.startTime,
+                endTime: course.endTime,
+              };
+              client.publish(
+                `device/${device.id}/sPOST`,
+                JSON.stringify(message)
+              );
+              console.log(
+                `Publish to device/${device.id} a message:` +
+                  JSON.stringify(message)
+              );
+            }
+          } else {
+            console.log(`No schedule for course ${course.id}`);
+          }
+        })
+      ).then(() => {
+        const messageLen = {
+          messageLength: messageLength,
+        };
+        client.publish(`device/${device.id}/sPOST`, JSON.stringify(messageLen));
+        console.log(
+          `Publish to device/${device.id} a message: ${JSON.stringify(
+            messageLen
+          )}`
+        );
+      });
+    } else {
+      console.log("Operation mode is Manual");
+    }
+  } catch (error) {
+    console.log(error);
   }
 };
 
@@ -96,7 +168,11 @@ const postDateOfDate = async (req, res, next) => {
     console.log(`Current time: ${currentTime}`);
 
     deviceList.map(async (device) => {
-      if (device.roomID === "Online" || device.status !== "Ready") {
+      if (device.roomID === "Online") {
+        console.log(`Device ${device.id} is in Online mode`);
+        return;
+      } else if (device.status !== "Ready") {
+        console.log(`Device ${device.id} is not ready`);
         return;
       }
       const courseIDList = await getCourseIDroomID(device.roomID);
@@ -165,13 +241,20 @@ const checkStatus = (req, res, next) => {
   try {
     getDeviceID().then((list) => {
       deviceList = list;
-      deviceList.map((device) => {
-        if (device.roomID !== "Online") {
-          client.publish(`device/${device.id}/status`, "CDS");
-          console.log(`Publish to device/${device.id} a message: CDS`);
-        } else {
-          client.publish(`device/${device.id}/status`, "CDSL");
-          console.log(`Publish to device/${device.id} a message: CDSL`);
+      list.map((device) => {
+        client.subscribe(`device/${device.id}/status/res`);
+        client.subscribe(`device/${device.id}/updateAtt`);
+        console.log(`Subscribed to device/${device.id}/status/res`);
+        console.log(`Subscribed to device/${device.id}/updateAtt`);
+        switch (device.roomID) {
+          case "Online":
+            client.publish(`device/${device.id}/status`, "CDSL");
+            console.log(`Publish to device/${device.id} a message: CDSL`);
+            break;
+          default:
+            client.publish(`device/${device.id}/status`, "CDS");
+            console.log(`Publish to device/${device.id} a message: CDS`);
+            break;
         }
       });
     });
@@ -184,167 +267,169 @@ const checkStatus = (req, res, next) => {
 
 const onConnect = () => {
   console.log("Connected to MQTT server");
-  getDeviceID().then((list) => {
-    deviceList = list;
-    deviceList.map((device) => {
-      client.subscribe(`device/${device.id}/status/res`);
-      client.subscribe(`device/${device.id}/updateAtt`);
-      console.log(`Subscribed to device/${device.id}/status/res`);
-      console.log(`Subscribed to device/${device.id}/updateAtt`);
-    });
-  });
 };
 
 const onMessage = (topic, message) => {
-  // console.log(`Received message from ${topic}: ${message.toString()}`);
-  deviceList.map((device) => {
-    if (
-      topic === `device/${device.id}/status/res` &&
-      ((device.roomID !== "Online" &&
-        message.toString() === `CDS-${device.id}`) ||
-        (device.roomID === "Online" &&
-          message.toString() === `CDSL-${device.id}`))
-    ) {
-      updateDeviceStatus(device.id, "Ready")
-        .then(async () => {
-          console.log(`Device ${device.id} is ready`);
-          if (operationMode === "Automatic") {
-            if (device.roomID === "Online" || device.status !== "Ready") {
-              return;
-            }
-            currentDay = formattedDate(new Date());
-            const courseIDList = await getCourseIDroomID(device.roomID);
-            client.publish(`device/${device.id}/sPOST`, `POST-${currentDay}`);
+  console.log(`Received message from ${topic}: ${message.toString()}`);
+  deviceList.map(async (device) => {
+    switch (device.roomID) {
+      case "Online":
+        switch (topic) {
+          case `device/${device.id}/updateAtt`:
+            const messageJson = JSON.parse(message.toString());
             console.log(
-              `Publish to device/${device.id} a message: POST-${currentDay}`
+              `Received message from ${topic}: ${JSON.stringify(messageJson)}`
             );
-            let messageLength = 0;
-            Promise.all(
-              courseIDList.map(async (course) => {
-                const scheduleList = await getScheduleCourseID(
-                  course.courseID,
-                  currentDay
-                );
-                if (scheduleList.length > 0) {
-                  const studentList = await getStudentCourseID(course.courseID);
-                  messageLength += studentList.length * scheduleList.length;
-                  for (const student of studentList) {
-                    const message = {
-                      studentID: student.studentID,
-                      RFID: student.RFID,
-                      courseID: course.courseID,
-                      scheduleID: scheduleList[0].id,
-                      startTime: course.startTime,
-                      endTime: course.endTime,
-                    };
-                    client.publish(
-                      `device/${device.id}/sPOST`,
-                      JSON.stringify(message)
-                    );
+            if ("RFID" in messageJson) {
+              if (operationMode === "Automatic") {
+                currentDay = formattedDate(new Date());
+                currentTime = formattedTime(new Date());
+              }
+              console.log("RFID");
+              getInfoCourseFromRFID(
+                messageJson.RFID,
+                currentDay,
+                currentTime
+              ).then(async (info) => {
+                const result = info;
+                if (result === null) {
+                  console.log("Invalid RFID");
+                  client.publish(`device/${device.id}/sPOST`, "LATE");
+                } else {
+                  client.publish(
+                    `device/${device.id}/sPOST`,
+                    JSON.stringify(result)
+                  );
+                  console.log(
+                    `Publish to device/${device.id}/sPOST a message:` +
+                      JSON.stringify(result)
+                  );
+                  const rs = await updateAttendance(
+                    result.studentID,
+                    result.scheduleID,
+                    "Watching",
+                    device
+                  );
+                  if (!rs) {
                     console.log(
-                      `Publish to device/${device.id} a message:` +
-                        JSON.stringify(message)
+                      "Update attendance Watching for device Online: FAILED",
+                      device.id
+                    );
+                    return;
+                  }
+                  if (rs === device.id) {
+                    console.log(
+                      `Update attendance Watching of student ${rs.studentID} for schedule ${result.scheduleID} successfully`
                     );
                   }
-                } else {
-                  console.log(`No schedule for course ${course.id}`);
+                  delay(10000);
                 }
-              })
-            ).then(() => {
-              const messageLen = {
-                messageLength: messageLength,
-              };
-              client.publish(
-                `device/${device.id}/sPOST`,
-                JSON.stringify(messageLen)
-              );
-              console.log(
-                `Publish to device/${device.id} a message: ${JSON.stringify(
-                  messageLen
-                )}`
-              );
-            });
-          }
-        })
-        .catch((error) => {
-          console.log(error);
-        });
-    }
-    if (
-      topic === `device/${device.id}/updateAtt` &&
-      device.roomID !== "Online"
-    ) {
-      const messageJson = JSON.parse(message.toString());
-      console.log(
-        `Received message from ${topic}: ${JSON.stringify(messageJson)}`
-      );
-      updateAttendanceTrue(messageJson.studentID, messageJson.scheduleID)
-        .then(() => {
-          console.log(
-            `Update attendance of student ${messageJson.studentID} for schedule ${messageJson.scheduleID} successfully`
-          );
-        })
-        .catch((error) => {
-          console.log(error);
-        });
-    }
-    if (
-      topic === `device/${device.id}/updateAtt` &&
-      device.roomID === "Online"
-    ) {
-      const messageJson = JSON.parse(message.toString());
-      console.log(
-        `Received message from ${topic}: ${JSON.stringify(messageJson)}`
-      );
-      if (messageJson.RFID) {
-        if (operationMode === "Automatic") {
-          currentDay = formattedDate(new Date());
-          currentTime = formattedTime(new Date());
-        }
-        getInfoCourseFromRFID(messageJson.RFID, currentDay, currentTime).then(
-          (info) => {
-            const result = info;
-            if (result === null) {
-              console.log("Invalid RFID");
-              client.publish(`device/${device.id}/sPOST`, "LATE");
+              });
+            } else if ("studentID" in messageJson) {
+              switch (messageJson.status) {
+                case "SUCCESS":
+                  const result = await updateAttendance(
+                    messageJson.studentID,
+                    messageJson.scheduleID,
+                    "Present",
+                    device
+                  );
+                  if (!result) {
+                    console.log(
+                      "Update attendance Present for device Online: FAILED",
+                      device.id
+                    );
+                    return;
+                  }
+                  if (result === device.id) {
+                    console.log(
+                      `Update attendance Present of student ${messageJson.studentID} for schedule ${messageJson.scheduleID} successfully`
+                    );
+                  }
+                  delay(10000);
+                  break;
+                case "FAIL":
+                  const rs = await updateAttendance(
+                    messageJson.studentID,
+                    messageJson.scheduleID,
+                    "Absent",
+                    device
+                  );
+                  if (!rs) {
+                    console.log(
+                      "Update attendance Absent for device Online: FAILED",
+                      device.id
+                    );
+                    return;
+                  }
+                  if (rs === device.id) {
+                    console.log(
+                      `Update attendance Absent of student ${messageJson.studentID} for schedule ${messageJson.scheduleID} successfully`
+                    );
+                  }
+                  delay(10000);
+                  break;
+                default:
+                  console.log("Invalid message for device Online 351");
+                  break;
+              }
             } else {
-              client.publish(
-                `device/${device.id}/sPOST`,
-                JSON.stringify(result)
-              );
-              console.log(
-                `Publish to device/${device.id}/sPOST a message:` +
-                  JSON.stringify(result)
-              );
-              updateAttendanceWatching(result.studentID, result.scheduleID);
+              console.log("Invalid message for device Online 355");
             }
-          }
-        );
-      } else if (messageJson.studentID) {
-        if (messageJson.status === "SUCCESS") {
-          updateAttendanceTrue(messageJson.studentID, messageJson.scheduleID)
-            .then(() => {
+            break;
+          case `device/${device.id}/status/res`:
+            if (message.toString() === `CDSL-${device.id}`) {
+              updateDeviceStatus(device.id, "Ready").then(() => {
+                deviceList.find((d) => d.id === device.id).status = "Ready";
+                postDateAutomatic(device);
+              });
+            }
+            break;
+          default:
+            console.log(
+              `Invalid topic for device Online 367: ${topic} in device ${device.id}`
+            );
+            break;
+        }
+        break;
+      default:
+        switch (topic) {
+          case `device/${device.id}/status/res`:
+            if (message.toString() === `CDS-${device.id}`) {
+              updateDeviceStatus(device.id, "Ready").then(() => {
+                deviceList.find((d) => d.id === device.id).status = "Ready";
+                postDateAutomatic(device);
+              });
+            }
+            break;
+          case `device/${device.id}/updateAtt`:
+            const messageJson = JSON.parse(message.toString());
+            console.log(
+              `Received message from ${topic}: ${JSON.stringify(messageJson)}`
+            );
+            const result = await updateAttendance(
+              messageJson.studentID,
+              messageJson.scheduleID,
+              "Present",
+              device
+            );
+            if (!result) {
+              console.log(
+                `Update attendance Present for device ${device.id}: FAILED`
+              );
+              return;
+            }
+            if (result === device.id) {
               console.log(
                 `Update attendance Present of student ${messageJson.studentID} for schedule ${messageJson.scheduleID} successfully`
               );
-            })
-            .catch((error) => {
-              console.log(error);
-            });
-        } else {
-          updateAttendanceFalse(messageJson.studentID, messageJson.scheduleID)
-            .then(() => {
-              console.log(
-                `Update attendance Absent of student ${messageJson.studentID} for schedule ${messageJson.scheduleID} successfully`
-              );
-            })
-            .catch((error) => {
-              console.log(error);
-            });
+            }
+            break;
+          default:
+            console.log("Invalid topic for device Offline");
+            break;
         }
-      } else {
-        console.log("Invalid message");
-      }
+        break;
     }
   });
 };

@@ -123,43 +123,6 @@ const getStudentCourseID = async (courseID) => {
   return list;
 };
 
-const updateAttendanceTrue = async (studentID, scheduleID) => {
-  const docRef = db
-    .collection("attendance")
-    .where("studentID", "==", studentID)
-    .where("scheduleID", "==", scheduleID);
-  docRef.get().then((querySnapshot) => {
-    querySnapshot.forEach((doc) => {
-      doc.ref.update({ attended: "Present" });
-    });
-  });
-};
-
-const updateAttendanceFalse = async (studentID, scheduleID) => {
-  const docRef = db
-    .collection("attendance")
-    .where("studentID", "==", studentID)
-    .where("scheduleID", "==", scheduleID);
-  docRef.get().then((querySnapshot) => {
-    querySnapshot.forEach((doc) => {
-      doc.ref.update({ attended: "Absent" });
-    });
-  });
-};
-
-const updateAttendanceWatching = async (studentID, scheduleID) => {
-  const docRef = db
-    .collection("attendance")
-    .where("studentID", "==", studentID)
-    .where("scheduleID", "==", scheduleID);
-  docRef.get().then((querySnapshot) => {
-    querySnapshot.forEach((doc) => {
-      doc.ref.update({ attended: "Watching" });
-    });
-  });
-  console.log("Update attendance watching");
-};
-
 const updateDeviceStatus = async (deviceID, status) => {
   await db.collection("device").doc(deviceID).update({
     status: status,
@@ -185,6 +148,7 @@ const getInfoCourseFromRFID = async (RFID, currentDay, currentTime) => {
   let result = {
     studentID: "",
     RFID: "",
+    courseID: "",
     scheduleID: "",
     startTime: "",
     endTime: "",
@@ -255,13 +219,38 @@ const getInfoCourseFromRFID = async (RFID, currentDay, currentTime) => {
     console.log("No course in time");
     return null;
   }
+  result.courseID = courseInTime;
   result.scheduleID = courseInDate.find(
     (course) => course.courseID === courseInTime
   ).scheduleID;
   return result;
 };
 
+const updateAttendance = async (studentID, scheduleID, status, device) => {
+  const result = await db
+    .collection("attendance")
+    .where("studentID", "==", studentID)
+    .where("scheduleID", "==", scheduleID)
+    .get()
+    .then((querySnapshot) => {
+      if (querySnapshot.empty) {
+        console.log("No matching documents.");
+        return null;
+      } else {
+        querySnapshot.forEach((doc) => {
+          doc.ref.update({
+            attended: status,
+          });
+        });
+        console.log(device.id);
+        return device.id;
+      }
+    });
+  return result;
+};
+
 module.exports = {
+  updateAttendance,
   addAuthentication,
   addLecturer,
   addParent,
@@ -271,10 +260,7 @@ module.exports = {
   getCourseIDroomID,
   getScheduleCourseID,
   getStudentCourseID,
-  updateAttendanceTrue,
   updateDeviceStatus,
   resetDeviceStatus,
-  updateAttendanceFalse,
-  updateAttendanceWatching,
   getInfoCourseFromRFID,
 };
